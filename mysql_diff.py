@@ -100,15 +100,16 @@ def db_diff():
             db=remote_db
         )
 
+
         local_conn = MySQLdb.connect(
             host=local_mysql_host,
-            port=local_mysql_host,
+            port=local_mysql_port,
             user=local_user,
             passwd=local_passwd,
             db=local_db
         )
 
-        return db_compare(remote_conn, local_conn, db_compare_name)
+        return db_compare(remote_conn, local_conn, local_db)
     else:
         with SSHTunnelForwarder(
                  (ssh_hostname, ssh_port),
