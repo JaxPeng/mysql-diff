@@ -1,46 +1,47 @@
 # coding: UTF-8
 
-import MySQLdb
-import MySQLdb.cursors
+import pymysql
+import pymysql.cursors
 from sshtunnel import SSHTunnelForwarder
 from config import *
 
 
-def db_compare(remote_conn, local_conn, db_name):
-    diff_tables = tables_diff(remote_conn, local_conn, db_name)
-    diff_fields = fields_diff(remote_conn, local_conn, db_name)
+
+def db_compare(remote_conn, local_conn, local_db_name, remote_db_name):
+    diff_tables = tables_diff(remote_conn, local_conn, local_db_name, remote_db_name)
+    diff_fields = fields_diff(remote_conn, local_conn, local_db_name, remote_db_name)
     return diff_tables, diff_fields
 
-def tables_diff(remote_conn, local_conn, db_name):
-    local_cursor = local_conn.cursor(cursorclass=MySQLdb.cursors.DictCursor)
-    remote_cursor = remote_conn.cursor(cursorclass=MySQLdb.cursors.DictCursor)
+def tables_diff(remote_conn, local_conn, local_db_name, remote_db_name):
+    local_cursor = local_conn.cursor()
+    remote_cursor = remote_conn.cursor()
 
-    sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = '%s'" % db_name
-
+    sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = '%s'" % local_db_name
     local_cursor.execute(sql)
     local_tables = list()
     for row in local_cursor.fetchall():
         local_tables.append(row['TABLE_NAME'])
 
+    sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = '%s'" % remote_db_name
     remote_cursor.execute(sql)
     remote_tables = list()
     for row in remote_cursor.fetchall():
         remote_tables.append(row['TABLE_NAME'])
-
     return list(set(local_tables) ^ set(remote_tables))
 
 
-def fields_diff(remote_conn, local_conn, db_name):
-    local_cursor = local_conn.cursor(cursorclass=MySQLdb.cursors.DictCursor)
-    remote_cursor = remote_conn.cursor(cursorclass=MySQLdb.cursors.DictCursor)
+def fields_diff(remote_conn, local_conn, local_db_name, remote_db_name):
+    local_cursor = local_conn.cursor()
+    remote_cursor = remote_conn.cursor()
 
-    sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = '%s'" % db_name
+    sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = '%s'" % local_db_name
 
     local_cursor.execute(sql)
     local_tables = list()
     for row in local_cursor.fetchall():
         local_tables.append(row['TABLE_NAME'])
 
+    sql = "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = '%s'" % remote_db_name
     remote_cursor.execute(sql)
     remote_tables = list()
     for row in remote_cursor.fetchall():
@@ -52,16 +53,16 @@ def fields_diff(remote_conn, local_conn, db_name):
     i = 0
     for table_name in tables:
         i += 1
-        print '%s/%s' % (i, len(tables))
+        print('%s/%s' % (i, len(tables)))
 
         sql = "SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_DEFAULT FROM information_schema.COLUMNS \
-        WHERE TABLE_NAME = '%s' AND TABLE_SCHEMA = '%s'" % (table_name, db_name)
+        WHERE TABLE_NAME = '%s' AND TABLE_SCHEMA = '%s'" % (table_name, local_db_name)
 
         local_cursor.execute(sql)
         for row in local_cursor.fetchall():
 
             sql = "SELECT COLUMN_NAME, COLUMN_TYPE, COLUMN_DEFAULT FROM information_schema.COLUMNS \
-            WHERE TABLE_NAME = '%s' AND TABLE_SCHEMA = '%s' AND COLUMN_NAME='%s' " % (table_name, db_name, row['COLUMN_NAME'])
+            WHERE TABLE_NAME = '%s' AND TABLE_SCHEMA = '%s' AND COLUMN_NAME='%s' " % (table_name, remote_db_name, row['COLUMN_NAME'])
 
             remote_cursor.execute(sql)
             remote_row = remote_cursor.fetchone()
@@ -92,23 +93,25 @@ def fields_diff(remote_conn, local_conn, db_name):
 def db_diff():
 
     if not ssh_tunnel:
-        remote_conn = MySQLdb.connect(
+        remote_conn = pymysql.connect(
             host=remote_mysql_host,
             port=remote_mysql_port,
             user=remote_user,
-            passwd=remote_passwd,
-            db=remote_db
+            password=remote_passwd,
+            database=remote_db,
+            cursorclass=pymysql.cursors.DictCursor
         )
 
-        local_conn = MySQLdb.connect(
+        local_conn = pymysql.connect(
             host=local_mysql_host,
             port=local_mysql_host,
             user=local_user,
-            passwd=local_passwd,
-            db=local_db
+            password=local_passwd,
+            database=local_db,
+            cursorclass=pymysql.cursors.DictCursor
         )
 
-        return db_compare(remote_conn, local_conn, db_compare_name)
+        return db_compare(remote_conn, local_conn, local_db_name, remote_db_name)
     else:
         with SSHTunnelForwarder(
                  (ssh_hostname, ssh_port),
@@ -116,23 +119,25 @@ def db_diff():
                  ssh_username=ssh_username,
                  remote_bind_address=(remote_mysql_host, remote_mysql_port)) as server:
 
-            remote_conn = MySQLdb.connect(
+            remote_conn = pymysql.connect(
                 host="127.0.0.1",
                 port=server.local_bind_port,
                 user=remote_user,
-                passwd=remote_passwd,
-                db=remote_db
+                password=remote_passwd,
+                database=remote_db,
+                cursorclass=pymysql.cursors.DictCursor
             )
 
-            local_conn = MySQLdb.connect(
+            local_conn = pymysql.connect(
                 host=local_mysql_host,
                 port=local_mysql_port,
                 user=local_user,
-                passwd=local_passwd,
-                db=local_db
+                password=local_passwd,
+                database=local_db,
+                cursorclass=pymysql.cursors.DictCursor
             )
 
-            return db_compare(remote_conn, local_conn, local_db)
+            return db_compare(remote_conn, local_conn, local_db, remote_db)
 
 
 def print_red(str):
@@ -145,20 +150,20 @@ if __name__ == '__main__':
 
     tables, fields = db_diff()
 
-    print '+----------------+'
-    print '| Missing tables |'
-    print '+----------------+'
+    print('+----------------+')
+    print('| Missing tables |')
+    print('+----------------+')
     for table in tables:
-         print print_red(table)
+         print(print_red(table))
 
-    print '+-------------------+'
-    print '| Different columns |'
-    print '+-------------------+'
+    print('+-------------------+')
+    print('| Different columns |')
+    print('+-------------------+')
     for field in fields:
-        print 'Table: %s' % print_green(field['table_name'])
-        print 'Column: %s' % print_red(field['column_name'])
-        print 'Local column type: %s' % print_red(field['local_column_type'])
-        print 'Remote column type: %s' % print_red(field['remote_column_type'])
-        print 'Local column default: %s' % print_red(field['local_column_default'])
-        print 'Remote column default: %s' % print_red(field['remote_column_default'])
-        print '+--------------------------------------+'
+        print('Table: %s' % print_green(field['table_name']))
+        print('Column: %s' % print_red(field['column_name']))
+        print('Local column type: %s' % print_red(field['local_column_type']))
+        print('Remote column type: %s' % print_red(field['remote_column_type']))
+        print('Local column default: %s' % print_red(field['local_column_default']))
+        print('Remote column default: %s' % print_red(field['remote_column_default']))
+        print('+--------------------------------------+')
